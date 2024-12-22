@@ -30,12 +30,11 @@ type Group struct {
 	cancel          context.CancelFunc
 	stopOnce        sync.Once
 	services        []Service
-	startedServices []Service  // Track successfully started services
-	mu              sync.Mutex // Protect startedServices
+	startedServices []Service
+	mu              sync.Mutex
 	timeout         time.Duration
 }
 
-// New creates a new Group with the specified timeout
 func New(timeout time.Duration) *Group {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Group{
@@ -48,41 +47,59 @@ func New(timeout time.Duration) *Group {
 	}
 }
 
-// Add registers a service with the group
 func (lg *Group) Add(service Service) {
 	lg.services = append(lg.services, service)
 }
 
 func (lg *Group) Start() error {
-	// Start signal handling
+	// Start signal handling in a separate goroutine
 	lg.wg.Go(func() {
 		lg.handleSignals()
 	})
 
-	// Start all services
+	// Start services sequentially in the order they were added
 	for _, service := range lg.services {
-		srvc := service // Create new variable for closure
-		lg.wg.Go(func() {
-			// Track service as started before calling Start
-			lg.mu.Lock()
-			lg.startedServices = append(lg.startedServices, srvc)
-			lg.mu.Unlock()
-
-			if err := srvc.Start(lg.ctx); err != nil {
-				lg.Stop() // Trigger stop on failure
-			}
-		})
+		if err := lg.startService(service); err != nil {
+			lg.Stop() // Trigger stop on failure
+			return err
+		}
 	}
 
 	return nil
 }
 
-// Wait blocks until all services have completed
+func (lg *Group) startService(service Service) error {
+	// Track service before starting
+	lg.mu.Lock()
+	lg.startedServices = append(lg.startedServices, service)
+	lg.mu.Unlock()
+
+	// Start the service in a goroutine but wait for any error
+	errCh := make(chan error, 1)
+	lg.wg.Go(func() {
+		err := service.Start(lg.ctx)
+		if err != nil {
+			errCh <- err
+		}
+		close(errCh)
+	})
+
+	// Wait for immediate errors before proceeding to next service
+	select {
+	case err := <-errCh:
+		if err != nil {
+			return err
+		}
+	case <-time.After(100 * time.Millisecond): // Brief window to catch startup errors
+	}
+
+	return nil
+}
+
 func (lg *Group) Wait() {
 	lg.wg.Wait()
 }
 
-// Stop initiates graceful stop of all services
 func (lg *Group) Stop() {
 	lg.stopOnce.Do(func() {
 		lg.cancel()
@@ -90,7 +107,6 @@ func (lg *Group) Stop() {
 	})
 }
 
-// handleSignals sets up signal handling for graceful stop
 func (lg *Group) handleSignals() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -103,26 +119,18 @@ func (lg *Group) handleSignals() {
 	}
 }
 
-// stopAll gracefully stops all successfully started services
 func (lg *Group) stopAll() {
 	stopCtx, cancel := context.WithTimeout(context.Background(), lg.timeout)
 	defer cancel()
 
-	// Create a WaitGroup for stop operations
-	stopWg := conc.NewWaitGroup()
-
 	// Get the list of services to stop under lock
 	lg.mu.Lock()
-	servicesToStop := lg.startedServices
+	servicesToStop := make([]Service, len(lg.startedServices))
+	copy(servicesToStop, lg.startedServices)
 	lg.mu.Unlock()
 
-	// Stop each service that was successfully started
-	for _, service := range servicesToStop {
-		srvc := service // Create new variable for closure
-		stopWg.Go(func() {
-			_ = srvc.Stop(stopCtx)
-		})
+	// Stop services sequentially in reverse order
+	for i := len(servicesToStop) - 1; i >= 0; i-- {
+		_ = servicesToStop[i].Stop(stopCtx)
 	}
-
-	stopWg.Wait()
 }
