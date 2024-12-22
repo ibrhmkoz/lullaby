@@ -68,8 +68,6 @@ func (lg *Group) Start() error {
 }
 
 func (lg *Group) startService(service Service) error {
-	lg.startedServices = append(lg.startedServices, service)
-
 	// Start the service in a goroutine but wait for any error
 	errCh := make(chan error, 1)
 	lg.wg.Go(func() {
@@ -89,6 +87,7 @@ func (lg *Group) startService(service Service) error {
 	case <-time.After(100 * time.Millisecond): // Brief window to catch startup errors
 	}
 
+	lg.startedServices = append(lg.startedServices, service)
 	return nil
 }
 

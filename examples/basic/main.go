@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"lullaby"
@@ -27,7 +28,7 @@ func NewHTTPServer(name, addr string, handler http.Handler) *HTTPServer {
 
 func (s *HTTPServer) Start(ctx context.Context) error {
 	log.Printf("Starting %s on %s", s.name, s.Addr)
-	if err := s.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	if err := s.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Printf("%s error: %v", s.name, err)
 		return err
 	}
