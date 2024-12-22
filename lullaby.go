@@ -25,22 +25,22 @@ type Service interface {
 }
 
 type Group struct {
-	wg       *conc.WaitGroup
-	ctx      context.Context
-	cancel   context.CancelFunc
-	stopOnce sync.Once
-	services []Service
-	timeout  time.Duration
+	wg          *conc.WaitGroup
+	startCtx    context.Context
+	cancelStart context.CancelFunc
+	stopOnce    sync.Once
+	services    []Service
+	timeout     time.Duration
 }
 
 func New(timeout time.Duration) *Group {
-	ctx, cancel := context.WithCancel(context.Background())
+	startCtx, cancelStart := context.WithCancel(context.Background())
 	return &Group{
-		wg:       conc.NewWaitGroup(),
-		ctx:      ctx,
-		cancel:   cancel,
-		timeout:  timeout,
-		services: make([]Service, 0),
+		wg:          conc.NewWaitGroup(),
+		startCtx:    startCtx,
+		cancelStart: cancelStart,
+		timeout:     timeout,
+		services:    make([]Service, 0),
 	}
 }
 
@@ -55,7 +55,7 @@ func (lg *Group) Start() error {
 	for _, service := range lg.services {
 		srv := service
 		lg.wg.Go(func() {
-			if err := srv.Start(lg.ctx); err != nil {
+			if err := srv.Start(lg.startCtx); err != nil {
 				errChan <- err
 				lg.Stop()
 			}
@@ -76,7 +76,7 @@ func (lg *Group) Wait() {
 
 func (lg *Group) Stop() {
 	lg.stopOnce.Do(func() {
-		lg.cancel()
+		lg.cancelStart()
 		lg.stopServices()
 	})
 }
@@ -86,7 +86,7 @@ func (lg *Group) handleSignals() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	select {
-	case <-lg.ctx.Done():
+	case <-lg.startCtx.Done():
 		return
 	case <-sigChan:
 		lg.Stop()
