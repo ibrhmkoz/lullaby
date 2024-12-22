@@ -68,28 +68,27 @@ func (m *mockService) waitForStart() {
 }
 
 func TestGroupBasicOperation(t *testing.T) {
-	// Test setup
 	group := New(0)
 	service := newMockService()
-
-	// Add service to group
 	group.Add(service)
 
-	// Start group
-	if err := group.Start(); err != nil {
-		t.Fatalf("Failed to start group: %v", err)
-	}
+	// Start in goroutine since it blocks
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- group.Start()
+	}()
 
 	// Wait for service to actually start
 	service.waitForStart()
 
-	// Stop group
+	// Trigger stop
 	group.Stop()
 
-	// Wait for all operations to complete
-	group.Wait()
+	// Check start error
+	if err := <-errChan; err != nil {
+		t.Fatalf("Failed to start group: %v", err)
+	}
 
-	// Verify service was started and stopped
 	if !service.wasStartCalled() {
 		t.Error("Service was not started")
 	}
@@ -99,7 +98,6 @@ func TestGroupBasicOperation(t *testing.T) {
 }
 
 func TestGroupMultipleServices(t *testing.T) {
-	// Test setup
 	group := New(0)
 	services := []*mockService{
 		newMockService(),
@@ -107,28 +105,29 @@ func TestGroupMultipleServices(t *testing.T) {
 		newMockService(),
 	}
 
-	// Add all services to group
 	for _, service := range services {
 		group.Add(service)
 	}
 
-	// Start group
-	if err := group.Start(); err != nil {
-		t.Fatalf("Failed to start group: %v", err)
-	}
+	// Start in goroutine since it blocks
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- group.Start()
+	}()
 
 	// Wait for all services to actually start
 	for _, service := range services {
 		service.waitForStart()
 	}
 
-	// Stop group
+	// Trigger stop
 	group.Stop()
 
-	// Wait for all operations to complete
-	group.Wait()
+	// Check start error
+	if err := <-errChan; err != nil {
+		t.Fatalf("Failed to start group: %v", err)
+	}
 
-	// Verify all services were started and stopped
 	for i, service := range services {
 		if !service.wasStartCalled() {
 			t.Errorf("Service %d was not started", i)
@@ -140,51 +139,40 @@ func TestGroupMultipleServices(t *testing.T) {
 }
 
 func TestGroupFailedStart(t *testing.T) {
-	// Test setup
 	group := New(0)
 	service1 := newMockService()
 	service2 := newMockService()
 	service2.shouldStartErr = true
 	service3 := newMockService()
 
-	// Add services to group
 	group.Add(service1)
 	group.Add(service2)
 	group.Add(service3)
 
-	// Start group
-	if err := group.Start(); err != nil {
-		t.Fatalf("Failed to start group: %v", err)
+	// Start should return error
+	err := group.Start()
+	if err == nil {
+		t.Fatal("Expected error from Start(), got nil")
 	}
 
-	// Only wait for service1 to start as service2 will error
-	service1.waitForStart()
-
-	// Wait for all operations to complete
-	group.Wait()
-
-	// Verify behavior when a service fails to start
 	if !service1.wasStopCalled() {
 		t.Error("Service 1 was not stopped after failure")
 	}
 	if !service2.wasStartCalled() {
 		t.Error("Service 2 start was not attempted")
 	}
-	// Don't verify service3's stop status as it may or may not be stopped
-	// depending on timing of service2's failure
 }
 
 func TestGroupIdempotentStop(t *testing.T) {
-	// Test setup
 	group := New(0)
 	service := newMockService()
-
 	group.Add(service)
 
-	// Start group
-	if err := group.Start(); err != nil {
-		t.Fatalf("Failed to start group: %v", err)
-	}
+	// Start in goroutine since it blocks
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- group.Start()
+	}()
 
 	// Wait for service to actually start
 	service.waitForStart()
@@ -194,10 +182,11 @@ func TestGroupIdempotentStop(t *testing.T) {
 	group.Stop()
 	group.Stop()
 
-	// Wait for all operations to complete
-	group.Wait()
+	// Check start error
+	if err := <-errChan; err != nil {
+		t.Fatalf("Failed to start group: %v", err)
+	}
 
-	// Verify service was started and stopped exactly once
 	if !service.wasStartCalled() {
 		t.Error("Service was not started")
 	}

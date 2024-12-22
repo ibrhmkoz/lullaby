@@ -64,10 +64,7 @@ func (lg *Group) Start() error {
 			}
 		})
 	}
-	return nil
-}
 
-func (lg *Group) Wait() error {
 	lg.wg.Wait()
 	// Check if any errors occurred
 	select {

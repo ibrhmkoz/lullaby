@@ -61,8 +61,4 @@ func main() {
 	if err := group.Start(); err != nil {
 		log.Fatal(err)
 	}
-
-	// Wait for shutdown
-	group.Wait()
-	log.Println("All servers stopped gracefully")
 }
