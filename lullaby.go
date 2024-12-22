@@ -31,6 +31,7 @@ type Group struct {
 	stopOnce    sync.Once
 	services    []Service
 	timeout     time.Duration
+	errChan     chan error
 }
 
 func New(timeout time.Duration) *Group {
@@ -50,6 +51,8 @@ func (lg *Group) Add(service Service) {
 
 func (lg *Group) Start() error {
 	errChan := make(chan error, len(lg.services))
+	lg.errChan = errChan // Store in Group struct
+
 	lg.wg.Go(lg.handleSignals)
 
 	for _, service := range lg.services {
@@ -61,17 +64,18 @@ func (lg *Group) Start() error {
 			}
 		})
 	}
+	return nil
+}
 
+func (lg *Group) Wait() error {
+	lg.wg.Wait()
+	// Check if any errors occurred
 	select {
-	case err := <-errChan:
-		return fmt.Errorf("service start failed: %w", err)
+	case err := <-lg.errChan:
+		return fmt.Errorf("service failed: %w", err)
 	default:
 		return nil
 	}
-}
-
-func (lg *Group) Wait() {
-	lg.wg.Wait()
 }
 
 func (lg *Group) Stop() {
