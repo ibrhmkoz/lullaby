@@ -2,6 +2,7 @@ package lullaby
 
 import (
 	"context"
+	"fmt"
 	"github.com/sourcegraph/conc"
 	"os"
 	"os/signal"
@@ -48,20 +49,25 @@ func (lg *Group) Add(service Service) {
 }
 
 func (lg *Group) Start() error {
-	// Start signal handling
+	errChan := make(chan error, len(lg.services))
 	lg.wg.Go(lg.handleSignals)
 
-	// Start all services concurrently using conc's WaitGroup
 	for _, service := range lg.services {
-		srv := service // Create new variable for closure
+		srv := service
 		lg.wg.Go(func() {
 			if err := srv.Start(lg.ctx); err != nil {
-				lg.Stop() // Trigger stop on failure
+				errChan <- err
+				lg.Stop()
 			}
 		})
 	}
 
-	return nil
+	select {
+	case err := <-errChan:
+		return fmt.Errorf("service start failed: %w", err)
+	default:
+		return nil
+	}
 }
 
 func (lg *Group) Wait() {
