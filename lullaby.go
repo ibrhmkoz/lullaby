@@ -26,8 +26,8 @@ type Service interface {
 // Group manages graceful stopping of multiple services
 type Group struct {
 	wg              *conc.WaitGroup
-	ctx             context.Context
-	cancel          context.CancelFunc
+	startCtx        context.Context
+	cancelStart     context.CancelFunc
 	stopOnce        sync.Once
 	services        []Service
 	startedServices []Service
@@ -35,11 +35,11 @@ type Group struct {
 }
 
 func New(timeout time.Duration) *Group {
-	ctx, cancel := context.WithCancel(context.Background())
+	startCtx, cancelStart := context.WithCancel(context.Background())
 	return &Group{
 		wg:              conc.NewWaitGroup(),
-		ctx:             ctx,
-		cancel:          cancel,
+		startCtx:        startCtx,
+		cancelStart:     cancelStart,
 		timeout:         timeout,
 		services:        make([]Service, 0),
 		startedServices: make([]Service, 0),
@@ -73,7 +73,7 @@ func (lg *Group) startService(service Service) error {
 	// Start the service in a goroutine but wait for any error
 	errCh := make(chan error, 1)
 	lg.wg.Go(func() {
-		err := service.Start(lg.ctx)
+		err := service.Start(lg.startCtx)
 		if err != nil {
 			errCh <- err
 		}
@@ -98,7 +98,7 @@ func (lg *Group) Wait() {
 
 func (lg *Group) Stop() {
 	lg.stopOnce.Do(func() {
-		lg.cancel()
+		lg.cancelStart()
 		lg.stopAll()
 	})
 }
@@ -108,7 +108,7 @@ func (lg *Group) handleSignals() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	select {
-	case <-lg.ctx.Done():
+	case <-lg.startCtx.Done():
 		return
 	case <-sigChan:
 		lg.Stop()
