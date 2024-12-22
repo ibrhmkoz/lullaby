@@ -31,7 +31,6 @@ type Group struct {
 	stopOnce        sync.Once
 	services        []Service
 	startedServices []Service
-	mu              sync.Mutex
 	timeout         time.Duration
 }
 
@@ -69,10 +68,7 @@ func (lg *Group) Start() error {
 }
 
 func (lg *Group) startService(service Service) error {
-	// Track service before starting
-	lg.mu.Lock()
 	lg.startedServices = append(lg.startedServices, service)
-	lg.mu.Unlock()
 
 	// Start the service in a goroutine but wait for any error
 	errCh := make(chan error, 1)
@@ -123,14 +119,8 @@ func (lg *Group) stopAll() {
 	stopCtx, cancel := context.WithTimeout(context.Background(), lg.timeout)
 	defer cancel()
 
-	// Get the list of services to stop under lock
-	lg.mu.Lock()
-	servicesToStop := make([]Service, len(lg.startedServices))
-	copy(servicesToStop, lg.startedServices)
-	lg.mu.Unlock()
-
 	// Stop services sequentially in reverse order
-	for i := len(servicesToStop) - 1; i >= 0; i-- {
-		_ = servicesToStop[i].Stop(stopCtx)
+	for i := len(lg.startedServices) - 1; i >= 0; i-- {
+		_ = lg.startedServices[i].Stop(stopCtx)
 	}
 }
