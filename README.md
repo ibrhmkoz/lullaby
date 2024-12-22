@@ -56,7 +56,7 @@ if someCondition {
 ## Installation
 
 ```bash
-go get github.com/yourusername/lullaby
+go get github.com/ibrhmkoz/lullaby
 ```
 
 ## Quick Start
