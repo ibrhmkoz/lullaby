@@ -45,7 +45,6 @@ While `lullaby` handles SIGINT/SIGTERM automatically, it also exposes a `Stop()`
 ```go
 // Signal-based stopping (automatic)
 group.Start()
-group.Wait()
 
 // Programmatic stopping
 group.Start()
@@ -80,9 +79,6 @@ func main() {
 
     // Start all services
     group.Start()
-
-    // Wait for completion (stop triggered by SIGINT/SIGTERM)
-    group.Wait()
 }
 ```
 
