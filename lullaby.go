@@ -25,23 +25,26 @@ type Service interface {
 
 // Group manages graceful stopping of multiple services
 type Group struct {
-	wg       *conc.WaitGroup
-	ctx      context.Context
-	cancel   context.CancelFunc
-	stopOnce sync.Once
-	services []Service
-	timeout  time.Duration
+	wg              *conc.WaitGroup
+	ctx             context.Context
+	cancel          context.CancelFunc
+	stopOnce        sync.Once
+	services        []Service
+	startedServices []Service  // Track successfully started services
+	mu              sync.Mutex // Protect startedServices
+	timeout         time.Duration
 }
 
 // New creates a new Group with the specified timeout
 func New(timeout time.Duration) *Group {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Group{
-		wg:       conc.NewWaitGroup(),
-		ctx:      ctx,
-		cancel:   cancel,
-		timeout:  timeout,
-		services: make([]Service, 0),
+		wg:              conc.NewWaitGroup(),
+		ctx:             ctx,
+		cancel:          cancel,
+		timeout:         timeout,
+		services:        make([]Service, 0),
+		startedServices: make([]Service, 0),
 	}
 }
 
@@ -50,7 +53,6 @@ func (lg *Group) Add(service Service) {
 	lg.services = append(lg.services, service)
 }
 
-// Start begins all registered services and sets up signal handling
 func (lg *Group) Start() error {
 	// Start signal handling
 	lg.wg.Go(func() {
@@ -59,10 +61,15 @@ func (lg *Group) Start() error {
 
 	// Start all services
 	for _, service := range lg.services {
-		service := service // Create new variable for closure
+		srvc := service // Create new variable for closure
 		lg.wg.Go(func() {
-			if err := service.Start(lg.ctx); err != nil {
-				lg.cancel() // Cancel context if any service fails
+			// Track service as started before calling Start
+			lg.mu.Lock()
+			lg.startedServices = append(lg.startedServices, srvc)
+			lg.mu.Unlock()
+
+			if err := srvc.Start(lg.ctx); err != nil {
+				lg.Stop() // Trigger stop on failure
 			}
 		})
 	}
@@ -96,7 +103,7 @@ func (lg *Group) handleSignals() {
 	}
 }
 
-// stopAll gracefully stops all services
+// stopAll gracefully stops all successfully started services
 func (lg *Group) stopAll() {
 	stopCtx, cancel := context.WithTimeout(context.Background(), lg.timeout)
 	defer cancel()
@@ -104,7 +111,13 @@ func (lg *Group) stopAll() {
 	// Create a WaitGroup for stop operations
 	stopWg := conc.NewWaitGroup()
 
-	for _, service := range lg.services {
+	// Get the list of services to stop under lock
+	lg.mu.Lock()
+	servicesToStop := lg.startedServices
+	lg.mu.Unlock()
+
+	// Stop each service that was successfully started
+	for _, service := range servicesToStop {
 		srvc := service // Create new variable for closure
 		stopWg.Go(func() {
 			_ = srvc.Stop(stopCtx)
